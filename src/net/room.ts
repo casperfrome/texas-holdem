@@ -50,6 +50,13 @@ export function parseRoomHash(hash: string): RoomCredentials | null {
   return null;
 }
 
+/** 解析用户粘贴的整条链接（也接受只粘贴 # 后面的部分） */
+export function parseRoomLink(text: string): RoomCredentials | null {
+  const t = text.trim();
+  const i = t.indexOf('#');
+  return parseRoomHash(i >= 0 ? t.slice(i) : `#${t}`);
+}
+
 function link(base: string, fragment: string, broker: BrokerId): string {
   return `${base}#${fragment}${broker === DEFAULT_BROKER ? '' : `&b=${broker}`}`;
 }

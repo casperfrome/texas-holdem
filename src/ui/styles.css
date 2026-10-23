@@ -261,3 +261,18 @@ button, input { font: inherit; color: inherit; }
 }
 .sheet-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .sheet-buttons .btn { flex: 1 1 auto; }
+
+/* ---------- 大厅：粘贴链接 / 安装说明 ---------- */
+.lobby-sub { font-size: 16px; margin: 18px 0 0; }
+.paste-row { display: flex; gap: 8px; }
+.paste-row input {
+  flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface);
+}
+.steps { margin: 0; padding-left: 22px; font-size: 14px; }
+.steps li { margin: 2px 0; }
+.small { font-size: 13px; }
+
+/* 主屏幕全屏模式下，内容不要被刘海和状态栏挡住 */
+.game { padding-top: calc(8px + env(safe-area-inset-top)); }
+.lobby { padding-top: calc(48px + env(safe-area-inset-top)); }

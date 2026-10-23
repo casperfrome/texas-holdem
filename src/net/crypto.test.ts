@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveKeys, seal, unseal } from './crypto';
-import { createRoom, guestLink, hostLink, parseRoomHash } from './room';
+import { createRoom, guestLink, hostLink, parseRoomHash, parseRoomLink } from './room';
 
 describe('房间链接', () => {
   it('房主链接和朋友链接都能解析回来', () => {
@@ -26,6 +26,17 @@ describe('房间链接', () => {
     expect(parseRoomHash('#join=short')).toBeNull();
     expect(parseRoomHash('#host=abcdefghijklmnopqrstuv')).toBeNull(); // 缺房主密钥
     expect(parseRoomHash('#join=abcdefghijklmnop<script>')).toBeNull();
+  });
+
+  it('粘贴整条链接、只粘贴 # 后面、前后有空格都能识别', () => {
+    const c = createRoom();
+    const url = hostLink('https://casperfrome.github.io/texas-holdem/', c);
+    expect(parseRoomLink(url)).toEqual(c);
+    expect(parseRoomLink(`  ${url}\n`)).toEqual(c);
+    expect(parseRoomLink(url.slice(url.indexOf('#')))).toEqual(c);
+    expect(parseRoomLink(`join=${c.room}`)).toEqual({ ...c, hostSecret: null });
+    expect(parseRoomLink('你好')).toBeNull();
+    expect(parseRoomLink('https://casperfrome.github.io/texas-holdem/')).toBeNull();
   });
 
   it('每次创建的房间都不一样', () => {
