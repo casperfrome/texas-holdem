@@ -2,26 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14513a">
 <title>德州扑克单挑</title>
-<style>
-  :root { --bg: #f6f6f3; --text: #1d1d1b; --muted: #6b6b66; --accent: #1f6f4a; }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg: #151614; --text: #ecece8; --muted: #9a9a94; --accent: #3fae78; }
-  }
-  :root[data-theme="dark"] { --bg: #151614; --text: #ecece8; --muted: #9a9a94; --accent: #3fae78; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 32px 16px; }
-  p { color: var(--muted); }
-  a { color: var(--accent); }
-</style>
 </head>
 <body>
-<main>
-  <h1>德州扑克单挑</h1>
-  <p>游戏还在开发中。</p>
-  <p><a href="connectivity-test/">联机连通性测试（第 0 阶段）</a></p>
-</main>
+<div id="root"></div>
+<script type="module" src="./src/main.tsx"></script>
 </body>
 </html>
