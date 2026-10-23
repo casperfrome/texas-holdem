@@ -225,3 +225,39 @@ button, input { font: inherit; color: inherit; }
   max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 10px;
   background: var(--danger); color: #fff; box-shadow: var(--shadow); cursor: pointer; z-index: 10;
 }
+
+/* ---------- 联机状态 ---------- */
+.status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle; background: var(--muted);
+}
+.status-online { background: #2e9d5b; }
+.status-connecting { background: var(--gold); }
+.status-offline { background: var(--danger); }
+
+.banner {
+  display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 6px; border-radius: 10px; font-size: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.banner-warn { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 15%, var(--surface)); }
+
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.sheet {
+  width: 100%; max-width: 480px; background: var(--surface); color: var(--text);
+  border-radius: 16px 16px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 10px;
+}
+.sheet h2 { margin: 0; font-size: 18px; }
+.sheet p { margin: 0; font-size: 14px; }
+.sheet-warn { color: var(--danger); }
+.link-box {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+  word-break: break-all; padding: 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
+  user-select: all; -webkit-user-select: all;
+}
+.sheet-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.sheet-buttons .btn { flex: 1 1 auto; }

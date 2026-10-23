@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { type Action, bestHand, type Card, type PlayerSeatView, type PlayerView, type Seat } from '../engine';
 import { ActionBar } from './ActionBar';
 import { BoardView, CardView } from './CardView';
@@ -6,11 +6,15 @@ import { describeEntry, describeHand, describeResult, STREET_NAME } from './form
 
 interface Props {
   view: PlayerView;
+  /** 操作已发出、等待房主确认 */
+  pending?: boolean;
+  /** 显示在顶栏的连接状态 */
+  statusDot?: ReactNode;
   onAct: (action: Action) => void;
   onNext: () => void;
 }
 
-export function Table({ view, onAct, onNext }: Props) {
+export function Table({ view, pending = false, statusDot, onAct, onNext }: Props) {
   const hand = view.hand;
   const you = view.you;
   const opp: Seat = you === 0 ? 1 : 0;
@@ -27,7 +31,7 @@ export function Table({ view, onAct, onNext }: Props) {
   return (
     <div className="table-wrap">
       <header className="scorebar">
-        <span>第 {view.matchNumber} 局 · 第 {hand.number} 手</span>
+        <span>{statusDot}第 {view.matchNumber} 局 · 第 {hand.number} 手</span>
         <span>盲注 {view.config.smallBlind}/{view.config.bigBlind}</span>
         <span>比分 {view.matchWins[you]} : {view.matchWins[opp]}</span>
       </header>
@@ -51,7 +55,9 @@ export function Table({ view, onAct, onNext }: Props) {
       </div>
 
       <div className="controls">
-        {result ? (
+        {pending ? (
+          <div className="waiting">发送中…</div>
+        ) : result ? (
           <ResultPanel view={view} onNext={onNext} />
         ) : view.legal ? (
           <ActionBar key={`${hand.number}-${hand.log.length}`} view={view} legal={view.legal} onAct={onAct} />
