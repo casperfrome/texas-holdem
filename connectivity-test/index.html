@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>联机连通性测试</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f6f3; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e2dc;
+    --accent: #1f6f4a; --accent-text: #ffffff; --ok: #1f7a46; --warn: #a86400; --bad: #b3261e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151614; --panel: #1f201e; --text: #ececE8; --muted: #9a9a94; --line: #33342f;
+      --accent: #3fae78; --accent-text: #0d1a12; --ok: #5ccb8a; --warn: #e0a24a; --bad: #f2867e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151614; --panel: #1f201e; --text: #ececE8; --muted: #9a9a94; --line: #33342f;
+    --accent: #3fae78; --accent-text: #0d1a12; --ok: #5ccb8a; --warn: #e0a24a; --bad: #f2867e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { font-size: 20px; margin: 8px 0 16px; }
+  h1 small { font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 6px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+  textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row > * { flex: 1 1 auto; }
+  .row > button { flex: 0 0 auto; }
+  .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .link { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 4px 0 6px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 13px; border-radius: 999px; padding: 3px 10px; border: 1px solid var(--line); }
+  .chip.ok { color: var(--ok); border-color: currentColor; }
+  .chip.warn { color: var(--warn); border-color: currentColor; }
+  .chip.bad { color: var(--bad); border-color: currentColor; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .s { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  #log { font-family: var(--mono); font-size: 12px; max-height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  #log .e { color: var(--bad); }
+  #log .c { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>联机连通性测试 <small>第 0 阶段</small></h1>
+
+  <section id="setup">
+    <h2>1. 房间口令</h2>
+    <div id="noPass">
+      <p class="hint" style="margin-top:0">房主（你）点下面按钮生成口令，然后把"朋友链接"私下发给朋友。</p>
+      <div class="row" style="margin-top:8px"><button class="primary" id="genBtn">生成房间口令</button></div>
+      <label for="passInput">或手动输入口令</label>
+      <input id="passInput" autocomplete="off" spellcheck="false" placeholder="两边必须完全一致">
+    </div>
+    <div id="links" hidden>
+      <label>你的房主链接（自己用，不要发出去）</label>
+      <div class="link" id="hostLink"></div>
+      <div class="row"><button data-copy="hostLink">复制房主链接</button></div>
+      <label>朋友链接（私下发给朋友）</label>
+      <div class="link" id="joinLink"></div>
+      <div class="row"><button data-copy="joinLink">复制朋友链接</button></div>
+    </div>
+
+    <h2 style="margin-top:16px">2. 测试设置</h2>
+    <label for="roleSel">我的身份</label>
+    <select id="roleSel"><option value="host">房主</option><option value="guest">玩家（朋友）</option></select>
+    <label for="netSel">当前网络（写进测试报告）</label>
+    <select id="netSel">
+      <option>WiFi</option><option>手机流量</option><option>有线网络</option><option>其他</option>
+    </select>
+    <label for="brokerSel">中转服务器（两边必须选同一个）</label>
+    <select id="brokerSel"></select>
+    <div class="row" style="margin-top:14px"><button class="primary" id="startBtn">开始测试</button></div>
+    <p class="hint" id="setupErr"></p>
+  </section>
+
+  <section id="session" hidden>
+    <div class="chips">
+      <span class="chip" id="chipBroker">服务器：连接中</span>
+      <span class="chip" id="chipPeer">对方：未知</span>
+    </div>
+    <p class="hint" id="peerInfo"></p>
+    <div class="grid" style="margin-top:10px">
+      <div class="stat"><div class="k">到服务器往返</div><div class="v" id="vBroker">—</div><div class="s" id="sBroker"></div></div>
+      <div class="stat"><div class="k">到对方往返</div><div class="v" id="vPeer">—</div><div class="s" id="sPeer"></div></div>
+      <div class="stat"><div class="k">首次连接耗时</div><div class="v" id="vConnect">—</div><div class="s">打开页面到连上服务器</div></div>
+      <div class="stat"><div class="k">自动重连 / 解密失败</div><div class="v" id="vRecon">0 / 0</div><div class="s" id="sResume"></div></div>
+    </div>
+    <label for="chatInput">发一条测试消息</label>
+    <div class="row">
+      <input id="chatInput" placeholder="比如：你好" autocomplete="off">
+      <button id="chatBtn">发送</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="reportBtn">复制测试报告</button>
+      <button id="stopBtn">停止</button>
+    </div>
+    <p class="hint">建议保持页面打开 2 分钟以上；也可以切到别的 App 再回来，看看恢复要多久。</p>
+  </section>
+
+  <section>
+    <h2>服务器测速（不需要对方在线）</h2>
+    <p class="hint" style="margin-top:0">依次连接每个服务器，测连接耗时和 5 次往返延迟。</p>
+    <div class="row" style="margin-top:8px"><button id="speedBtn">测试全部服务器</button></div>
+    <table id="speedTable" hidden>
+      <thead><tr><th>服务器</th><th>连接耗时</th><th>平均往返</th><th>结果</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>日志</h2>
+    <div id="log"></div>
+  </section>
+
+  <section id="reportBox" hidden>
+    <h2>测试报告</h2>
+    <p class="hint" style="margin-top:0">自动复制失败时，请手动全选复制：</p>
+    <textarea id="reportText" rows="12" readonly></textarea>
+  </section>
+</main>
+
+<script>
+'use strict';
+
+const BROKERS = [
+  { id: 'emqx', name: 'EMQX', url: 'wss://broker.emqx.io:8084/mqtt' },
+  { id: 'hivemq', name: 'HiveMQ', url: 'wss://broker.hivemq.com:8884/mqtt' },
+  { id: 'mosquitto', name: 'Mosquitto', url: 'wss://test.mosquitto.org:8081/mqtt' },
+];
+const PING_INTERVAL_MS = 3000;
+const PEER_TIMEOUT_MS = 10000;
+const ROLE_NAME = { host: '房主', guest: '玩家' };
+
+const $ = (id) => document.getElementById(id);
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* 隐私模式等情况下不可用 */ } },
+};
+
+// ---------- 工具 ----------
+const hex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
+const b64 = (u8) => btoa(String.fromCharCode(...u8));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const randId = (n = 6) => hex(crypto.getRandomValues(new Uint8Array(n)));
+const now = () => performance.now();
+const clock = () => new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+function randomPass() {
+  // 18 字节随机数 → 24 位 base64url，约 144 位熵
+  return b64(crypto.getRandomValues(new Uint8Array(18))).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function deviceSummary() {
+  const ua = navigator.userAgent;
+  let os = '未知系统';
+  if (/iPhone|iPod/.test(ua)) os = 'iPhone';
+  else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) os = 'iPad';
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/Windows/.test(ua)) os = 'Windows';
+  else if (/Macintosh/.test(ua)) os = 'macOS';
+  let br = '其他浏览器';
+  if (/Edg\//.test(ua)) br = 'Edge';
+  else if (/CriOS|Chrome\//.test(ua)) br = 'Chrome';
+  else if (/FxiOS|Firefox\//.test(ua)) br = 'Firefox';
+  else if (/Safari\//.test(ua)) br = 'Safari';
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  return `${os} / ${br}${standalone ? '（主屏幕模式）' : ''}`;
+}
+
+function log(msg, cls) {
+  const el = $('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = `${clock()}  ${msg}`;
+  el.appendChild(line);
+  while (el.childNodes.length > 300) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---------- 加密 ----------
+// 口令 → PBKDF2 → 前 32 字节作 AES-GCM 密钥，后 16 字节作频道地址
+async function deriveRoom(pass) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pass.normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode('texas-holdem-heads-up/v1'), iterations: 200000, hash: 'SHA-256' }, base, 384));
+  const key = await crypto.subtle.importKey('raw', bits.slice(0, 32), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  return { key, topicId: hex(bits.slice(32, 48)) };
+}
+
+async function seal(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj))));
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv);
+  out.set(ct, iv.length);
+  return b64(out);
+}
+
+async function unseal(key, text) {
+  const u8 = unb64(text);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u8.slice(0, 12) }, key, u8.slice(12));
+  return JSON.parse(dec.decode(pt));
+}
+
+// ---------- 统计 ----------
+class Samples {
+  constructor() { this.list = []; }
+  add(v) { this.list.push(v); if (this.list.length > 500) this.list.shift(); }
+  get n() { return this.list.length; }
+  get last() { return this.list[this.list.length - 1]; }
+  get avg() { return this.list.reduce((a, b) => a + b, 0) / this.n; }
+  get min() { return Math.min(...this.list); }
+  get max() { return Math.max(...this.list); }
+  summary() { return this.n ? `平均 ${Math.round(this.avg)} ms（最小 ${Math.round(this.min)} / 最大 ${Math.round(this.max)}，${this.n} 次）` : '无数据'; }
+}
+
+// ---------- 测试会话 ----------
+let S = null;
+
+async function startSession() {
+  const pass = currentPass();
+  if (!pass) { $('setupErr').textContent = '请先生成或输入房间口令。'; return; }
+  if (!window.isSecureContext || !crypto.subtle) { $('setupErr').textContent = '当前页面不是 https，浏览器禁止使用加密功能。'; return; }
+  if (!window.mqtt) { $('setupErr').textContent = 'mqtt 库没加载成功，请检查网络后刷新。'; return; }
+  $('setupErr').textContent = '';
+
+  const role = $('roleSel').value;
+  const broker = BROKERS.find((b) => b.id === $('brokerSel').value);
+  store.set('thp.role', role);
+  store.set('thp.broker', broker.id);
+  store.set('thp.pass', pass);
+
+  $('startBtn').disabled = true;
+  log(`正在由口令生成密钥…`);
+  const { key, topicId } = await deriveRoom(pass);
+  const base = `thp/${topicId}`;
+
+  S = {
+    role, broker, key, net: $('netSel').value, inst: randId(),
+    topics: { all: `${base}/#`, msg: `${base}/m`, presence: (r) => `${base}/p/${r}` },
+    t0: now(), connectMs: null, connected: false,
+    echo: new Samples(), peer: new Samples(),
+    pending: new Map(), pingSeq: 0, peerSent: 0, peerLost: 0,
+    reconnects: 0, decryptFail: 0,
+    peerLastHeard: 0, peerDevice: null, peerRole: null,
+    hiddenAt: null, resumeSamples: new Samples(),
+  };
+
+  const willPayload = await seal(key, { t: 'presence', online: false, role, inst: S.inst, at: Date.now() });
+  log(`连接 ${broker.name}（${broker.url}）…`);
+  const client = mqtt.connect(broker.url, {
+    clientId: `thp_${randId(8)}`,
+    clean: true, keepalive: 20, reconnectPeriod: 2000, connectTimeout: 10000,
+    will: { topic: S.topics.presence(role), payload: willPayload, qos: 1, retain: true },
+  });
+  S.client = client;
+
+  client.on('connect', async () => {
+    S.connected = true;
+    if (S.connectMs === null) { S.connectMs = now() - S.t0; log(`已连接服务器，耗时 ${Math.round(S.connectMs)} ms`, 'c'); }
+    else log('重新连上服务器', 'c');
+    client.subscribe(S.topics.all, { qos: 1 });
+    publishPresence();
+    sendEcho();
+    render();
+  });
+  client.on('reconnect', () => { S.reconnects++; log(`正在重连服务器（第 ${S.reconnects} 次）`); render(); });
+  client.on('offline', () => { S.connected = false; log('与服务器断开', 'e'); render(); });
+  client.on('close', () => { S.connected = false; render(); });
+  client.on('error', (err) => log(`服务器错误：${err.message}`, 'e'));
+  client.on('message', (topic, payload) => onMessage(topic, payload.toString()));
+
+  S.timer = setInterval(tick, PING_INTERVAL_MS);
+  $('setup').hidden = true;
+  $('session').hidden = false;
+  render();
+}
+
+async function publish(topic, obj, opts = {}) {
+  if (!S?.client) return;
+  S.client.publish(topic, await seal(S.key, obj), { qos: 1, ...opts });
+}
+
+function publishPresence() {
+  publish(S.topics.presence(S.role), { t: 'presence', online: true, role: S.role, inst: S.inst, at: Date.now(), device: deviceSummary(), net: S.net }, { retain: true });
+}
+
+function sendEcho() {
+  if (S?.connected) publish(S.topics.msg, { t: 'echo', inst: S.inst, sent: now() });
+}
+
+function sendPing() {
+  if (!S?.connected) return;
+  const n = ++S.pingSeq;
+  const peerOnline = now() - S.peerLastHeard < PEER_TIMEOUT_MS;
+  S.pending.set(n, { sent: now(), counted: peerOnline });
+  if (peerOnline) S.peerSent++;
+  publish(S.topics.msg, { t: 'ping', n, inst: S.inst, role: S.role, device: deviceSummary(), net: S.net });
+}
+
+function tick() {
+  sendEcho();
+  sendPing();
+  const cutoff = now() - PEER_TIMEOUT_MS;
+  for (const [n, p] of S.pending) {
+    if (p.sent < cutoff) { if (p.counted) S.peerLost++; S.pending.delete(n); }
+  }
+  render();
+}
+
+async function onMessage(topic, text) {
+  if (!S || !text) return; // 空内容 = 清除保留消息
+  let m;
+  try { m = await unseal(S.key, text); }
+  catch { S.decryptFail++; log(`收到无法解密的消息（${topic}）`, 'e'); render(); return; }
+
+  if (m.inst === S.inst) {
+    if (m.t === 'echo') { S.echo.add(now() - m.sent); markResumed('服务器'); render(); }
+    return;
+  }
+
+  if (m.t === 'presence') {
+    if (m.role === S.role) return; // 同角色的旧在线记录（自己以前的会话）
+    const when = new Date(m.at).toLocaleString('zh-CN', { hour12: false });
+    if (m.online) { S.peerDevice = `${m.device}，${m.net}`; log(`对方${ROLE_NAME[m.role]}的在线记录：${when} 上线（${m.device}，${m.net}）`); }
+    else log(`对方${ROLE_NAME[m.role]}已离线（${when}）`);
+    S.peerRole = m.role;
+    render();
+    return;
+  }
+
+  // 下面这些都来自对方
+  S.peerLastHeard = now();
+  S.peerRole = m.role || S.peerRole;
+  if (m.device) S.peerDevice = `${m.device}，${m.net}`;
+  if (m.role && m.role === S.role) log(`警告：对方也选了"${ROLE_NAME[m.role]}"身份，正式游戏里两边身份必须不同`, 'e');
+
+  if (m.t === 'ping') {
+    publish(S.topics.msg, { t: 'pong', n: m.n, to: m.inst, inst: S.inst, role: S.role });
+  } else if (m.t === 'pong' && m.to === S.inst) {
+    const p = S.pending.get(m.n);
+    if (p) { S.peer.add(now() - p.sent); S.pending.delete(m.n); markResumed('对方'); }
+  } else if (m.t === 'chat') {
+    log(`对方说：${m.text}`, 'c');
+  }
+  render();
+}
+
+function markResumed(what) {
+  if (S.hiddenAt === null) return;
+  const ms = now() - S.hiddenAt.visibleAt;
+  if (S.hiddenAt.visibleAt && what === '对方') {
+    S.resumeSamples.add(ms);
+    log(`回到前台后 ${Math.round(ms)} ms 恢复与对方通信`, 'c');
+    S.hiddenAt = null;
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!S) return;
+  if (document.hidden) {
+    S.hiddenAt = { at: now(), visibleAt: 0 };
+    log('页面切到后台');
+  } else if (S.hiddenAt) {
+    S.hiddenAt.visibleAt = now();
+    log(`页面回到前台（离开了 ${Math.round((now() - S.hiddenAt.at) / 1000)} 秒）`);
+    if (!S.client.connected) S.client.reconnect();
+    sendEcho();
+    sendPing();
+  }
+});
+
+function stopSession() {
+  if (!S) return;
+  clearInterval(S.timer);
+  // 主动离开时也写一条离线记录，再断开
+  publish(S.topics.presence(S.role), { t: 'presence', online: false, role: S.role, inst: S.inst, at: Date.now() }, { retain: true })
+    .finally(() => setTimeout(() => S.client.end(), 300));
+  log('已停止测试');
+  $('stopBtn').disabled = true;
+}
+
+// ---------- 界面 ----------
+function setChip(el, text, cls) { el.textContent = text; el.className = `chip ${cls}`; }
+
+function fillStat(vId, sId, samples, extra) {
+  $(vId).textContent = samples.n ? `${Math.round(samples.last)} ms` : '—';
+  $(sId).textContent = samples.n ? `平均 ${Math.round(samples.avg)} · 最小 ${Math.round(samples.min)} · 最大 ${Math.round(samples.max)}${extra || ''}` : (extra || '');
+}
+
+function render() {
+  if (!S) return;
+  setChip($('chipBroker'), S.connected ? `服务器：已连接（${S.broker.name}）` : '服务器：未连接', S.connected ? 'ok' : 'bad');
+  const peerOnline = S.peerLastHeard && now() - S.peerLastHeard < PEER_TIMEOUT_MS;
+  const peerLabel = S.peerRole ? ROLE_NAME[S.peerRole] : '对方';
+  setChip($('chipPeer'), peerOnline ? `${peerLabel}：在线` : `${peerLabel}：不在线`, peerOnline ? 'ok' : 'warn');
+  $('peerInfo').textContent = S.peerDevice ? `对方设备：${S.peerDevice}` : '等待对方打开页面…';
+  fillStat('vBroker', 'sBroker', S.echo);
+  const loss = S.peerSent ? ` · 丢失 ${S.peerLost}/${S.peerSent}` : '';
+  fillStat('vPeer', 'sPeer', S.peer, loss);
+  $('vConnect').textContent = S.connectMs === null ? '—' : `${Math.round(S.connectMs)} ms`;
+  $('vRecon').textContent = `${S.reconnects} / ${S.decryptFail}`;
+  $('sResume').textContent = S.resumeSamples.n ? `切回前台恢复：平均 ${Math.round(S.resumeSamples.avg)} ms` : '';
+}
+
+function buildReport() {
+  return [
+    '【联机连通性测试报告】',
+    `时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+    `身份：${ROLE_NAME[S.role]}`,
+    `设备：${deviceSummary()}`,
+    `网络：${S.net}`,
+    `服务器：${S.broker.name}`,
+    `首次连接耗时：${S.connectMs === null ? '未连上' : Math.round(S.connectMs) + ' ms'}`,
+    `到服务器往返：${S.echo.summary()}`,
+    `到对方往返：${S.peer.summary()}`,
+    `对方在线时丢失：${S.peerLost} / ${S.peerSent}`,
+    `自动重连次数：${S.reconnects}`,
+    `解密失败次数：${S.decryptFail}`,
+    `切回前台恢复：${S.resumeSamples.summary()}`,
+    `对方设备：${S.peerDevice || '未见到对方'}`,
+  ].join('\n');
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+// ---------- 服务器测速 ----------
+async function speedTestOne(broker) {
+  return new Promise((resolve) => {
+    const t0 = now();
+    const topic = `thp-speed/${randId(8)}`;
+    const rtts = [];
+    let connectMs = null;
+    let sentAt = 0;
+    const client = mqtt.connect(broker.url, { clientId: `thp_s_${randId(6)}`, clean: true, reconnectPeriod: 0, connectTimeout: 8000 });
+    const finish = (result) => { clearTimeout(timer); client.end(true); resolve({ connectMs, rtts, ...result }); };
+    const timer = setTimeout(() => finish({ ok: false, why: '超时' }), 15000);
+    const sendNext = () => { sentAt = now(); client.publish(topic, String(rtts.length), { qos: 1 }); };
+    client.on('connect', () => {
+      connectMs = now() - t0;
+      client.subscribe(topic, { qos: 1 }, (err) => { if (err) finish({ ok: false, why: '订阅失败' }); else sendNext(); });
+    });
+    client.on('message', () => {
+      rtts.push(now() - sentAt);
+      if (rtts.length >= 5) finish({ ok: true }); else sendNext();
+    });
+    client.on('error', (err) => finish({ ok: false, why: err.message || '连接错误' }));
+  });
+}
+
+async function speedTestAll() {
+  if (!window.mqtt) { log('mqtt 库没加载成功', 'e'); return; }
+  $('speedBtn').disabled = true;
+  const tbody = $('speedTable').querySelector('tbody');
+  tbody.innerHTML = '';
+  $('speedTable').hidden = false;
+  for (const b of BROKERS) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${b.name}</td><td>…</td><td>…</td><td>测试中</td>`;
+    tbody.appendChild(tr);
+    const r = await speedTestOne(b);
+    const avg = r.rtts.length ? Math.round(r.rtts.reduce((a, c) => a + c, 0) / r.rtts.length) + ' ms' : '—';
+    tr.children[1].textContent = r.connectMs === null ? '—' : `${Math.round(r.connectMs)} ms`;
+    tr.children[2].textContent = avg;
+    tr.children[3].textContent = r.ok ? '✅ 可用' : `❌ ${r.why}`;
+    log(`测速 ${b.name}：${r.ok ? `连接 ${Math.round(r.connectMs)} ms，往返 ${avg}` : '失败：' + r.why}`, r.ok ? '' : 'e');
+  }
+  $('speedBtn').disabled = false;
+}
+
+// ---------- 初始化 ----------
+function currentPass() { return ($('passInput').value || '').trim(); }
+
+function showLinks(pass) {
+  const base = location.origin + location.pathname;
+  $('hostLink').textContent = `${base}#host=${encodeURIComponent(pass)}`;
+  $('joinLink').textContent = `${base}#join=${encodeURIComponent(pass)}`;
+  $('links').hidden = false;
+}
+
+function init() {
+  for (const b of BROKERS) $('brokerSel').add(new Option(`${b.name}（${new URL(b.url).host}）`, b.id));
+  $('brokerSel').value = store.get('thp.broker') || BROKERS[0].id;
+
+  // 口令放在 # 后面：不会发给托管网站。读取后从地址栏去掉，避免截图泄露
+  const hash = new URLSearchParams(location.hash.slice(1));
+  let pass = store.get('thp.pass') || '';
+  let role = store.get('thp.role') || 'host';
+  if (hash.get('host')) { pass = hash.get('host'); role = 'host'; }
+  else if (hash.get('join')) { pass = hash.get('join'); role = 'guest'; }
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  if (pass) store.set('thp.pass', pass);
+  store.set('thp.role', role);
+
+  $('passInput').value = pass;
+  $('roleSel').value = role;
+  if (pass && role === 'host') showLinks(pass);
+
+  $('genBtn').onclick = () => {
+    const p = randomPass();
+    $('passInput').value = p;
+    $('roleSel').value = 'host';
+    store.set('thp.pass', p);
+    showLinks(p);
+  };
+  $('passInput').oninput = () => { const p = currentPass(); if (p && $('roleSel').value === 'host') showLinks(p); else $('links').hidden = true; };
+  $('roleSel').onchange = $('passInput').oninput;
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.onclick = async () => {
+      const ok = await copyText($(btn.dataset.copy).textContent);
+      const label = btn.textContent;
+      btn.textContent = ok ? '已复制' : '复制失败，请长按链接手动复制';
+      setTimeout(() => { btn.textContent = label; }, 1800);
+    };
+  });
+  $('startBtn').onclick = () => startSession().catch((e) => { $('setupErr').textContent = `启动失败：${e.message}`; $('startBtn').disabled = false; });
+  $('stopBtn').onclick = stopSession;
+  $('speedBtn').onclick = speedTestAll;
+  const sendChat = () => {
+    const text = $('chatInput').value.trim();
+    if (!text || !S?.connected) return;
+    publish(S.topics.msg, { t: 'chat', text, inst: S.inst, role: S.role });
+    log(`我说：${text}`);
+    $('chatInput').value = '';
+  };
+  $('chatBtn').onclick = sendChat;
+  $('chatInput').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
+  $('reportBtn').onclick = async () => {
+    const text = buildReport();
+    $('reportText').value = text;
+    $('reportBox').hidden = false;
+    const ok = await copyText(text);
+    $('reportBtn').textContent = ok ? '已复制，发给对方或我即可' : '请在下方手动复制';
+    setTimeout(() => { $('reportBtn').textContent = '复制测试报告'; }, 2500);
+  };
+
+  setInterval(render, 1000);
+  log(`页面就绪：${deviceSummary()}${window.isSecureContext ? '' : '（注意：非 https，加密不可用）'}`);
+}
+
+init();
+</script>
+</body>
+</html>
