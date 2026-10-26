@@ -172,7 +172,7 @@ export class Rooms {
     const before = structuredClone(room);
     let error: string | undefined;
     let nudge: Peer | undefined;
-    this.store.db.transaction(() => {
+    try { this.store.db.transaction(() => {
       try {
         if (msg.v !== 3 || msg.epoch !== room.epoch || msg.version !== room.version) throw new ApiError('画面已更新，请按最新牌面操作');
         switch (msg.op as Command['op']) {
@@ -222,7 +222,7 @@ export class Rooms {
         error = (e as Error).message;
       }
       this.store.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(room.id, userId, id, error ?? null, this.now());
-    })();
+    })(); } catch (failure) { Object.assign(room, before); throw failure; }
     this.publish(room);
     if (!error) (nudge as Peer | undefined)?.send({ t: 'nudge', from: member.name });
     return error ? { id, error } : { id };

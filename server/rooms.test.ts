@@ -35,6 +35,18 @@ function setup(startingStack = 1000) {
     advance(ms: number) { clock += ms; rooms.tick(); } };
 }
 describe('authoritative rooms', () => {
+  it('rolls back both memory and SQLite if saving the command fails', () => {
+    const s = setup();
+    const before = structuredClone(s.room);
+    const actor = s.room.state.hand!.toAct === 0 ? s.owner : s.player;
+    s.store.db.exec("CREATE TEMP TRIGGER fail_command BEFORE INSERT ON commands BEGIN SELECT RAISE(ABORT,'storage failure'); END");
+    expect(() => s.command(actor, 'action', { type: 'allin' })).toThrow('storage failure');
+    expect(s.room).toEqual(before);
+    const saved = s.store.db.prepare('SELECT data FROM rooms WHERE id=?').get(s.room.id) as { data: string };
+    expect(JSON.parse(saved.data)).toEqual(before);
+    s.store.db.exec('DROP TRIGGER fail_command');
+    expect(s.command(actor, 'action', { type: 'allin' }).reply.error).toBeUndefined();
+  });
   it('does not leak deck or opponent cards to players or spectators', () => {
     const s = setup();
     const owner = s.rooms.state(s.room, s.owner.id);

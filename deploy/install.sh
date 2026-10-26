@@ -26,7 +26,10 @@ id texas-holdem >/dev/null 2>&1 || useradd --system --home-dir /var/lib/texas-ho
 install -d -o texas-holdem -g texas-holdem -m 700 /var/lib/texas-holdem /var/lib/texas-holdem/backups
 install -d -m 755 /var/www/texas-acme
 cd "$RELEASE"
-npm ci --omit=dev --no-audit --no-fund
+# better-sqlite3 13 bundles N-API binaries for supported platforms. npm 11.19
+# otherwise invokes its legacy binding.gyp fallback despite gypfile=false.
+npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+node -e 'require("better-sqlite3") (":memory:").close()'
 printf 'PUBLIC_ORIGIN=https://%s:%s\nPORT=3000\nDB_PATH=/var/lib/texas-holdem/game.sqlite\nBACKUP_DIR=/var/lib/texas-holdem/backups\nNODE_ENV=production\n' "$IP" "$PORT" >/etc/texas-holdem.env
 chmod 640 /etc/texas-holdem.env
 chown root:texas-holdem /etc/texas-holdem.env

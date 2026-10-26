@@ -98,6 +98,7 @@ export class ServerGameClient implements GameClient {
       const peerSeat = event.view.you === 0 ? 1 : 0;
       this.update({
         view: event.view, epoch: event.epoch,
+        ...(event.epoch !== this.snapshot.epoch || event.view.matchNumber !== this.snapshot.view?.matchNumber ? { nudgeUsed: null } : {}),
         room: {
           name: event.room.name, seats: event.room.seats, watchers: event.watcherNames,
           maxWatchers: event.room.maxWatchers, you: event.seat === null ? 'watcher' : 'player', owner: event.owner,
@@ -107,8 +108,10 @@ export class ServerGameClient implements GameClient {
         connection: { self: 'online', peer: event.room.seats[peerSeat] === null ? 'unknown' : event.room.online[peerSeat] ? 'online' : 'offline', superseded: false },
       });
     } else if (event.t === 'ack' && event.id === this.pending?.id) {
+      const nudged = this.pending.op === 'nudge' && !event.error;
+      const hand = this.snapshot.view?.hand;
       this.pending = null;
-      this.update({ pending: false, error: event.error ?? null });
+      this.update({ pending: false, error: event.error ?? null, ...(nudged && hand ? { nudgeUsed: `${hand.number}:${hand.log.length}` } : {}) });
     } else if (event.t === 'error') {
       this.pending = null;
       this.update({ error: event.error, pending: false, ...(!this.snapshot.view ? { denied: event.error } : {}) });
@@ -131,11 +134,7 @@ export class ServerGameClient implements GameClient {
   sit() { this.command('sit'); }
   stand() { this.command('stand'); }
   reset() { this.command('reset'); }
-  nudge() {
-    this.command('nudge');
-    const h = this.snapshot.view?.hand;
-    if (h) this.update({ nudgeUsed: `${h.number}:${h.log.length}` });
-  }
+  nudge() { this.command('nudge'); }
   dismissError() { this.update({ error: null }); }
   leave() { this.dispose(); }
   dispose() { clearInterval(this.resend); this.connection.close(); this.listeners.clear(); }
