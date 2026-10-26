@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Action, LegalActions, PlayerView } from '../engine';
 import { potSizedTo } from './format';
 
@@ -9,9 +9,16 @@ interface Props {
 }
 
 const PRESETS: { label: string; fraction: number }[] = [
-  { label: '½ 池', fraction: 0.5 },
-  { label: '¾ 池', fraction: 0.75 },
-  { label: '1 池', fraction: 1 },
+  { label: '½池', fraction: 0.5 },
+  { label: '¾池', fraction: 0.75 },
+  { label: '1池', fraction: 1 },
+];
+
+/** 快捷金额：最小、按底池比例、全下。底池小时几个按钮可能是同一个金额，所以按钮上直接写出金额 */
+export const presetAmounts = (view: PlayerView, legal: LegalActions): { label: string; to: number }[] => [
+  { label: '最小', to: legal.minTo },
+  ...PRESETS.map((p) => ({ label: p.label, to: potSizedTo(view, legal, p.fraction) })),
+  { label: '全下', to: legal.maxTo },
 ];
 
 export function ActionBar({ view, legal, onAct }: Props) {
@@ -21,6 +28,13 @@ export function ActionBar({ view, legal, onAct }: Props) {
   const clamped = Math.min(legal.maxTo, Math.max(legal.minTo, Number.isFinite(amount) ? Math.round(amount) : legal.minTo));
   const isAllIn = clamped === legal.maxTo;
   const verb = legal.canBet ? '下注' : '加注到';
+
+  // 弃牌确认几秒后自动取消，免得之后误点
+  useEffect(() => {
+    if (!confirmFold) return;
+    const t = setTimeout(() => setConfirmFold(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirmFold]);
 
   const fold = () => {
     // 可以免费过牌时弃牌，多确认一次
@@ -33,11 +47,14 @@ export function ActionBar({ view, legal, onAct }: Props) {
       {canAggress && legal.maxTo > legal.minTo && (
         <div className="sizing">
           <div className="presets">
-            <button type="button" onClick={() => setAmount(legal.minTo)}>最小</button>
-            {PRESETS.map((p) => (
-              <button type="button" key={p.label} onClick={() => setAmount(potSizedTo(view, legal, p.fraction))}>{p.label}</button>
+            {presetAmounts(view, legal).map((p) => (
+              <button
+                type="button" key={p.label} className={p.to === clamped ? 'preset-on' : undefined}
+                aria-pressed={p.to === clamped} onClick={() => setAmount(p.to)}
+              >
+                {p.label}<span className="preset-amount">{p.to}</span>
+              </button>
             ))}
-            <button type="button" onClick={() => setAmount(legal.maxTo)}>全下</button>
           </div>
           <div className="slider-row">
             <input
