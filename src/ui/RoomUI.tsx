@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react';
-import { browserStore } from '../game/client';
-import { BROKERS, type BrokerId, isBrokerId, loadBrokerChoice, saveBrokerChoice } from '../net/broker';
 import type { ConnectionInfo, Role } from '../net/protocol';
 import { detectPlatform, useInstallPrompt } from './pwa';
 
@@ -43,35 +41,6 @@ export function StatusDot({ connection }: { connection: ConnectionInfo }) {
   return (
     <span className={`status-dot status-${connection.self}`} title={label} role="status" aria-label={label} />
   );
-}
-
-/** 顶部提示：自己断线、对方不在线、还没有对手 */
-export function StatusBanner({ role, connection, opponent, hasView, onInvite }: {
-  role: Role;
-  connection: ConnectionInfo;
-  /** 房主看：坐在对面的人 */
-  opponent: string | null;
-  hasView: boolean;
-  onInvite: () => void;
-}) {
-  if (connection.self !== 'online') {
-    return <div className="banner banner-warn">{connection.self === 'connecting' ? '正在连接…' : '网络断开，正在重连…'}</div>;
-  }
-  if (role === 'host') {
-    if (!opponent) {
-      return (
-        <div className="banner">
-          还没有对手
-          <button type="button" className="link" onClick={onInvite}>发邀请链接</button>
-        </div>
-      );
-    }
-    if (connection.peer === 'offline') return <div className="banner banner-warn">{opponent}暂时不在线，牌局暂停</div>;
-    return null;
-  }
-  if (connection.peer === 'offline' && hasView) return <div className="banner banner-warn">房主不在线，牌局暂停</div>;
-  if (connection.peer === 'offline') return <div className="banner banner-warn">房主现在不在线，上线后自动进入</div>;
-  return null;
 }
 
 /** 被催时：提示音 + 震动 */
@@ -147,25 +116,4 @@ export function useWakeLock(enabled: boolean) {
       void lock?.release().catch(() => {});
     };
   }, [enabled]);
-}
-
-/** 换中转服务器：大家要用同一个，换了之后重新加载页面 */
-export function BrokerPicker() {
-  const current = loadBrokerChoice(browserStore);
-  return (
-    <label className="broker-picker muted small">
-      中转服务器
-      <select
-        value={current}
-        onChange={(e) => {
-          if (!isBrokerId(e.target.value)) return;
-          saveBrokerChoice(browserStore, e.target.value);
-          location.reload();
-        }}
-      >
-        {(Object.keys(BROKERS) as BrokerId[]).map((id) => <option key={id} value={id}>{BROKERS[id].name}</option>)}
-      </select>
-      <span>（默认的连不上时换一个；和朋友要用同一个，邀请链接会自动带上）</span>
-    </label>
-  );
 }

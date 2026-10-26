@@ -72,7 +72,7 @@ export function turnKey(view: PlayerView | null): string | null {
 
 /** 现在能不能催对手：自己坐着、轮到对手、这一轮还没催过 */
 export function canNudge(s: ClientSnapshot): boolean {
-  if (!s.view || !s.room || s.room.you === 'watcher' || s.room.seats[1] === null) return false;
+  if (!s.view || !s.room || s.room.you === 'watcher' || s.room.seats.some((name) => name === null)) return false;
   const key = turnKey(s.view);
   return key !== null && s.view.hand!.toAct !== s.view.you && s.nudgeUsed !== key;
 }

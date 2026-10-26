@@ -1,5 +1,9 @@
 .DS_Store
 node_modules/
 dist/
+dist-server/
+data/
+backups/
+.deploy/
 _site/
 .claude/settings.local.json

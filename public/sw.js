@@ -2,7 +2,7 @@
 // 页面本身总是先走网络（拿到最新版本），断网时才用缓存；
 // assets/ 下的文件名带内容哈希，内容不会变，直接用缓存。
 // 联机消息走 WebSocket，不经过这里。
-const CACHE = 'thp-v1';
+const CACHE = 'thp-v3';
 const SHELL = ['./', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const MAX_ASSETS = 40;
 
@@ -22,6 +22,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // 账号、房间、健康检查始终走网络，不缓存任何用户数据。
+  if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
 
   if (req.mode === 'navigate') {
     event.respondWith(networkFirst(req));

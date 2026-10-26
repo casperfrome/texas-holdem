@@ -29,7 +29,9 @@ export type SeatedMessage = Extract<GuestMessage, { seq: number }>;
 export interface RoomInfo {
   name: string;
   /** 0 号位是房主，1 号位为 null 表示空位 */
-  seats: [string, string | null];
+  seats: [string | null, string | null];
+  /** 在线服务器上的房间管理权限，独立于座位 */
+  owner?: boolean;
   /** 观众的名字 */
   watchers: string[];
   maxWatchers: number;

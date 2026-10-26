@@ -1,96 +1,82 @@
 # 德州扑克单挑
 
-在线对战的无限注德州扑克网页游戏（每桌两人单挑，可以开观战席），Mac、Windows、Android、iPhone 的浏览器都能玩，不需要自己的服务器。
+服务器裁判的双人无限注德州扑克网页游戏，支持密码房间、观战、15 秒倒计时、断线恢复和安装到主屏幕。
 
-- 账号：进游戏前登录或注册，只要用户名和密码（密码没有任何要求）。账号记录用密码加密后存在中转服务器上，本机也留一份；换设备登录同一账号，"我的房间"和战绩都在
-- 房间：谁都可以建房间，可以设密码（留空 = 谁都能进）和观战席数量（不开放 / 2 / 5 / 10）。大厅里能看到所有房间；有密码的房间要输对密码才能进
-- 座位：房主坐一边，第一个选"坐下"的人坐另一边，其余人观战。观众在空座时可以坐下，玩家可以站起变观众
-- 观众看不到手牌：每个人进房时和房主协商出只有两人知道的密钥（ECDH），玩家的底牌只用它加密，观众即使知道房间密码也解不开（摊牌时才公开）
-- 限时：每次行动 15 秒，界面上有倒计时；超时能过牌就自动过牌，否则自动弃牌，记录里会标"（超时自动）"
-- 催一催：对手思考时可以催一次（每轮一次），对方会看到提示、听到提示音、手机震动
-- 联机方式：通过公共 MQTT 服务器中转（默认 EMQX，连不上时可以换 HiveMQ / Mosquitto；和朋友要用同一个，邀请链接会自动带上）
-- 房主：负责洗牌、发牌、判定和计时；存档同时保存在本机和中转服务器（用房主密钥加密，别人解不开），换设备登录后从"我的房间"进入就能接着打
-- 断线：房主每次发送完整画面并保留在服务器上；玩家的操作没确认就重发，房主按序号去重；回到前台时立刻检查连接，失效就换新连接
+游戏地址：<https://156.225.76.31:1108/>。旧 GitHub Pages 地址会跳转到这里。新服需要重新注册，旧 MQTT 账号和牌局不迁移。
 
-## 怎么玩
+## 玩法
 
-1. 打开网站，注册一个账号（只要用户名和密码）。
-2. 点"创建房间"，填房间名、密码（可以不填）、观战席数量。
-3. 在房间里点底部"邀请"，把链接发给朋友，密码另外告诉他。朋友打开链接、登录后会直接弹出这个房间，输入密码，选"坐下打牌"或"观战"。也可以在大厅的房间列表里点房间进入。
-4. 房主换设备：在新设备上登录同一账号，在"我的房间"里点"进入"。旧设备会自动停止，牌局接着打。
-5. 装到主屏幕：点牌桌底部"安装"，按提示操作。iPhone 上从图标第一次打开时要再登录一次（主屏幕 App 和 Safari 的存储是分开的）。
+1. 注册或登录，只需要用户名和非空密码。账号和战绩保存在服务器，密码只存哈希。
+2. 创建房间，可以设置密码及 0 / 2 / 5 / 10 个观战席，把邀请链接发给朋友；密码另外告知。
+3. 建房者默认坐 0 号位，也可以站起观战。任意空座都可以入座，双方坐好后自动开始。
+4. 初始各 1000 筹码，盲注 5/10。每步显示 15 秒，另有 1 秒网络宽限；超时能过牌就过牌，否则弃牌。
+5. 玩家和观众断线后保留位置 60 秒，期间计时继续。同账号换设备进入同房间时，新设备接管，旧设备停止操作。
+6. 主动离座、离房或超时腾位会结束尚未完成的整局，不计战绩；下次双方坐好重新开始。站起需要空余观战席。
+7. 房主保留重开和解散房间的权限，房主离线不影响服务器运行。胜负由服务器按整局结果记一次。
+8. 服务重启后恢复牌局和筹码，重新给予 15 秒行动时间和 60 秒重连宽限。
 
-真实设备测试步骤见 [docs/device-testing.md](docs/device-testing.md)。
-
-升级说明：这一版的消息格式和频道都换了（`thp/v2/`），旧版的单房间链接和对局不能继续用，需要注册账号后重新建房。
-
-## 目录
-
-| 路径 | 内容 |
-|---|---|
-| `index.html`、`src/main.tsx` | 游戏页面入口（Vite + React） |
-| `connectivity-test/` | 第 0 阶段：联机连通性测试页 |
-| `src/engine/` | 规则引擎（纯函数，不依赖界面和网络） |
-| `src/net/` | 中转连接（`broker.ts`）、加密（`crypto.ts`）、账号（`accounts.ts`）、房间列表（`lobby.ts`）、房间通信（`room-conn.ts`）、消息格式（`protocol.ts`）、邀请链接（`room.ts`）；以及单机测试用的本地传输（`local.ts`） |
-| `src/game/` | 房主（持有完整状态、存档、座位和观众、计时）和参与者客户端 |
-| `src/ui/` | 登录、大厅、牌桌界面；安装到主屏幕 |
-| `public/` | 应用清单、图标、Service Worker（页面先走网络，断网用缓存） |
-| `docs/device-testing.md` | 真实设备测试清单 |
-| `.github/workflows/pages.yml` | 推送到 `main` 后自动发布到 GitHub Pages |
-| `.github/workflows/test.yml` | 每次推送都跑类型检查和测试 |
-
-## 已知限制（没有自己的服务器）
-
-- 公共中转服务器不保证一直保存数据。账号在本机有备份，登录时会自动补回服务器；但如果换了一台从没登录过的设备、服务器上的记录又刚好被清掉，就登录不了。
-- 公共中转服务器偶尔会连不上（例如 EMQX 某段时间不可用），这时在登录页或大厅底部换一个中转服务器，并让朋友也换成同一个（重新发一次邀请链接即可）。
-- 房间列表是明文的，用这个游戏的人都能看到房间名和房主名；牌局内容是加密的。
-- 房主的设备持有整副牌，技术上房主能看到对手的牌。要彻底解决需要服务器当裁判（见下）或"心理扑克"协议。
-- 房间密码可以被离线猜测（列表里有用来验证密码的校验串），别用重要的密码。
-
-## 以后上服务器
-
-现在的结构已经为换成自己的服务器留好了口子，界面和规则不用改：
-
-| 现在 | 换成服务器后 |
-|---|---|
-| `AccountService`（`src/net/accounts.ts`）：账号存在中转服务器的保留消息里 | 改成调用服务器的注册 / 登录接口，服务器存账号和战绩 |
-| `watchLobby` / `publishListing`（`src/net/lobby.ts`）：房间列表是保留消息 | 改成从服务器拉房间列表（或 WebSocket 推送） |
-| `HostLink` / `GuestLink`（`src/net/room-conn.ts`）：经 MQTT 中转 | 换成连到服务器的 WebSocket，实现同样的 `HostTransport` / `GuestTransport` 接口 |
-| `HostController`（`src/game/client.ts`）跑在房主设备上 | 原样搬到服务器上跑（纯逻辑，不依赖浏览器），房主变成普通玩家，没人能偷看牌 |
-
-## 规则引擎
-
-| 文件 | 内容 |
-|---|---|
-| `cards.ts` | 牌、加密随机数洗牌 |
-| `evaluate.ts` | 从 7 张牌选出最好的 5 张并比较大小 |
-| `game.ts` | 对局状态机：盲注、下注、全下、退还多余筹码、摊牌、一方输光后重开 |
-| `view.ts` | 按身份裁剪数据：去掉牌堆，对方底牌只在摊牌时给出；观众两边底牌都只在摊牌时给出 |
-
-用法：
-
-```ts
-import { applyAction, createMatch, startHand, viewFor } from './src/engine';
-
-let state = createMatch();                     // 默认各 1000 筹码，盲注 5/10，座位 0（房主）先当庄
-state = startHand(state);                      // 洗牌、放盲注、发底牌
-state = applyAction(state, 0, { type: 'raise', to: 30 });
-const forGuest = viewFor(state, 1);            // 发给朋友的数据
-```
-
-`bet` / `raise` 的 `to` 是本轮下注后的总额；下注上限按有效筹码（双方较少的那份）封顶。
+玩家只能收到自己的底牌，观众在摊牌前看不到任何底牌。完整牌堆和所有玩家手牌只保存在服务器。筹码仅用于游戏计分。
 
 ## 开发
 
-```bash
-npm install
-npm run dev       # 本地运行，打开 http://localhost:5173
-npm test          # 单元测试 + 2 万手随机对打
-npm run build     # 类型检查 + 打包到 dist/
-```
+需要 Node.js 24。使用 npm ci 安装依赖，在两个终端分别运行：
 
-单机测试（不走网络、不用登录）：打开 `http://localhost:5173/#local=host` 当房主，再开标签页打开 `#local=guest` 当玩家、`#local=watch` 当观众。几个标签页通过 BroadcastChannel 通信，必须是同一个浏览器、同一个地址。
+~~~sh
+npm run dev:server   # 127.0.0.1:3000，SQLite 默认 data/game.sqlite
+npm run dev          # http://127.0.0.1:5173，代理 /api 和 /ws
+~~~
 
-在一台电脑上测联机：房主用 `http://localhost:5173`，把邀请链接里的 `localhost` 换成 `127.0.0.1` 再打开；第三个身份可以用 `npm run build && npm run preview`（`http://localhost:4173`）。不同地址的浏览器存储是分开的，相当于不同设备，各自注册一个账号即可。
+~~~sh
+npm test             # 规则、2 万手随机对打、账号和服务端集成测试
+npm run typecheck    # 前后端类型检查
+npm run build        # dist/ 网页 + dist-server/ 服务端
+npm start            # 启动已打包的服务端
+npm run backup       # SQLite 一致性备份，清理超过 7 天的备份
+~~~
 
-连通性测试页：`python3 -m http.server 8765 --bind 127.0.0.1`，然后打开 <http://localhost:8765/connectivity-test/>。加密功能只能在 `https` 或 `localhost` 下使用。
+单机测试入口：#local=host、#local=guest、#local=watch；同源标签页通过 BroadcastChannel 通信，不依赖服务器。旧 MQTT 模块仅作为历史实现和回归测试保留，不参与在线运行。
+
+## 服务接口
+
+- POST /api/auth/register、/api/auth/login、/api/auth/logout；GET /api/me。
+- GET /api/rooms、POST /api/rooms、POST /api/rooms/:id/join、POST /api/rooms/:id/leave、DELETE /api/rooms/:id。
+- GET /api/health：进程和数据库健康检查。
+- /ws：协议 v3，Cookie 鉴权及 Origin 校验。订阅大厅和房间，发送 action / next / sit / stand / nudge / reset 操作；服务器返回个人视图、确认、错误和状态更新。
+
+Cookie 为 HttpOnly、SameSite=Lax，生产环境启用 Secure；30 天有效。浏览器不保存密码、会话令牌或完整牌局。每次操作先事务保存再广播，重复请求与重复结算不会重复生效。Service Worker 只缓存静态资源，API 不缓存。
+
+## 部署
+
+Windows PowerShell：
+
+~~~powershell
+.\scripts\deploy.ps1
+~~~
+
+脚本默认使用 root@156.225.76.31、私钥 C:\Users\zevro\.ssh\id_ed25519 和 HTTPS 1108；可通过 Server、Port、IdentityFile 参数覆盖。首次连接需事先将已核验的 SSH 主机密钥加入 known_hosts。脚本先测试和构建，再上传产物、安装服务并检查健康，失败时回退上一程序版本。
+
+- Nginx：80 仅用于 ACME 验证和跳转；1108 提供网页、API 和 WebSocket。
+- Node.js 24：仅监听 127.0.0.1:3000，专用用户 texas-holdem，systemd 管理。
+- 程序：/opt/texas-holdem/releases/，current 指向当前发布，previous 指向上一发布。
+- 数据：/var/lib/texas-holdem/game.sqlite；配置：/etc/texas-holdem.env。
+- 备份：/var/lib/texas-holdem/backups/，每日执行并保留 7 天，更新前也执行备份。
+- TLS：Certbot Snap 5.4+ 签发受信任的短期 IP 证书，Snap 定时续期，成功后重载 Nginx。
+- SSH 私钥、数据库、备份和生产配置不进入 Git。现有 443 / Xray 和 Hysteria 服务保留。
+
+## 运维
+
+~~~sh
+systemctl status texas-holdem nginx
+journalctl -u texas-holdem -n 100 --no-pager
+systemctl restart texas-holdem
+systemctl start texas-holdem-backup.service
+systemctl list-timers --all
+/snap/bin/certbot renew --dry-run --run-deploy-hooks
+curl https://156.225.76.31:1108/api/health
+~~~
+
+程序回退：将 current 重新指向 previous 所指的发布目录，然后重启 texas-holdem。回退程序不会替换数据库。
+
+数据恢复：先停止 texas-holdem，将选定的备份复制到 game.sqlite，移除该数据库旧的 -wal / -shm 文件，确认文件归 texas-holdem 用户且权限 600，再启动服务。恢复会退回到备份时刻，请先保留当前数据库的一致性备份。
+
+真实设备清单见 [docs/device-testing.md](docs/device-testing.md)。

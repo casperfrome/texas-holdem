@@ -1,6 +1,6 @@
 // 两人单挑无限注德州扑克的规则引擎。
 // 纯数据、纯函数：applyAction 等函数不会修改传入的状态，而是返回新状态。
-// 状态里包含整副牌，只能留在房主设备上；发给玩家的数据要经过 view.ts 裁剪。
+// 在线模式的完整状态只留在服务器；发给玩家的数据要经过 view.ts 裁剪。
 import { type Card, cryptoRandomInt, isValidCard, newDeck, type RandomInt, shuffle } from './cards';
 import { bestHand, compareHands, type HandValue } from './evaluate';
 

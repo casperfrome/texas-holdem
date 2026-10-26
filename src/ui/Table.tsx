@@ -27,7 +27,7 @@ export function Table({ view, room, turn, pending = false, statusDot, canNudge, 
   const opp: Seat = you === 0 ? 1 : 0;
   const watching = room?.you === 'watcher';
   const who = namer(you, room?.seats, watching);
-  const seatFree = room !== null && room.seats[1] === null;
+  const seatFree = room !== null && room.seats.some((name) => name === null);
 
   if (!hand) {
     return (

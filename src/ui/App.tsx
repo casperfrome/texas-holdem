@@ -1,192 +1,71 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import {
-  browserStore, canNudge, type GameClient, GuestClient, HostController, isSavedGame, type KeyValueStore,
-} from '../game/client';
-import { AccountService, recordMatch, seatTokenFor, type Session } from '../net/accounts';
-import { Broker, BROKERS, loadBrokerChoice, saveBrokerChoice } from '../net/broker';
-import { type EcdhPair, generateEcdh, importKey } from '../net/crypto';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { browserStore, canNudge, type GameClient, GuestClient, HostController } from '../game/client';
 import { createLocalGuestTransport, createLocalHostTransport } from '../net/local';
-import { hostKeyOf, listingFor, publishListing, roomKeyOf } from '../net/lobby';
-import { GuestLink, HostLink } from '../net/room-conn';
-import { inviteLink, parseInviteHash } from '../net/room';
-import { Lobby, type RoomEntry } from './Lobby';
-import { Login } from './Login';
+import { api, ServerGameClient } from '../net/server';
+import type { User } from '../shared/server-protocol';
 import { isStandalone } from './pwa';
-import { alertNudge, InstallPanel, LinkPanel, StatusBanner, StatusDot, useWakeLock } from './RoomUI';
+import { alertNudge, InstallPanel, LinkPanel, StatusDot, useWakeLock } from './RoomUI';
 import { Table } from './Table';
+import { Login } from './Login';
+import { Lobby } from './Lobby';
 
 type LocalRole = 'host' | 'guest' | 'watch';
-
-const parseLocal = (): LocalRole | null => /^#local=(host|guest|watch)$/.exec(location.hash)?.[1] as LocalRole ?? null;
-
-const pageBase = () => location.origin + location.pathname;
-
-const brokerUrl = () => BROKERS[loadBrokerChoice(browserStore)].url;
-
-/** 账号和房间列表共用一条连接；进了房间另开一条（带掉线遗嘱） */
-let mainBroker: Broker | null = null;
-const getMainBroker = () => (mainBroker ??= new Broker({ url: brokerUrl() }));
-
-const currentKey = (accountId: string) => `thp.v2.current.${accountId}`;
-
-function loadCurrent(store: KeyValueStore, accountId: string): RoomEntry | null {
-  const raw = store.get(currentKey(accountId));
-  if (!raw) return null;
-  try { return JSON.parse(raw) as RoomEntry; } catch { return null; }
-}
-
-const ecdhPending = new Map<string, Promise<EcdhPair>>();
-
-/** 每个账号在每个房间用一对固定的密钥，刷新页面后还是同一个参与者 */
-function ecdhFor(store: KeyValueStore, accountId: string, roomId: string): Promise<EcdhPair> {
-  const key = `thp.v2.ecdh.${accountId}.${roomId}`;
-  const raw = store.get(key);
-  if (raw) {
-    try { return Promise.resolve(JSON.parse(raw) as EcdhPair); } catch { /* 重新生成 */ }
-  }
-  // 同时进来两次（例如开发模式下组件挂载两次）也只生成一对
-  let pending = ecdhPending.get(key);
-  if (!pending) {
-    pending = generateEcdh().then((pair) => { store.set(key, JSON.stringify(pair)); return pair; });
-    ecdhPending.set(key, pending);
-  }
-  return pending;
-}
-
 export function App() {
-  const [local, setLocal] = useState(parseLocal);
+  const [hash, setHash] = useState(location.hash);
   useEffect(() => {
-    const onHash = () => {
-      // 页面开着时又打开了邀请链接：重新加载，按链接里的中转服务器重新连接
-      if (parseInviteHash(location.hash)) location.reload();
-      else setLocal(parseLocal());
-    };
-    addEventListener('hashchange', onHash);
-    return () => removeEventListener('hashchange', onHash);
+    const changed = () => setHash(location.hash);
+    addEventListener('hashchange', changed);
+    return () => removeEventListener('hashchange', changed);
   }, []);
-  if (local) return <LocalGame key={local} role={local} />;
-  return <Online />;
+  const local = /^#local=(host|guest|watch)$/.exec(hash)?.[1] as LocalRole | undefined;
+  return local ? <LocalGame key={local} role={local} /> : <Online key={hash} hash={hash} />;
 }
-
-function Online() {
-  // 邀请链接：记下来再从地址栏去掉，登录后打开对应房间；房主用的中转服务器跟着换（要在连接之前）
-  const [invite] = useState(() => {
-    const parsed = parseInviteHash(location.hash);
-    if (!parsed) return null;
-    history.replaceState(null, '', location.pathname + location.search);
-    saveBrokerChoice(browserStore, parsed.broker);
-    return parsed.roomId;
-  });
-  const [accounts] = useState(() => new AccountService(getMainBroker(), browserStore));
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
-  const [entry, setEntry] = useState<RoomEntry | null>(null);
-
+function Online({ hash }: { hash: string }) {
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const invite = new URLSearchParams(hash.replace(/^#/, '')).get('room');
   useEffect(() => {
-    void accounts.restore().then((s) => {
-      setSession(s);
-      if (s && !invite) setEntry(loadCurrent(browserStore, s.id));
-    });
-  }, [accounts, invite]);
-
-  const enter = useCallback((e: RoomEntry | null) => {
-    if (session) browserStore.set(currentKey(session.id), e ? JSON.stringify(e) : '');
-    setEntry(e);
-  }, [session]);
-
-  // 战绩更新等会连续修改账号，用 ref 保证每次都在最新的基础上改
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-  const onMatchOver = useCallback((matchKey: string, won: boolean) => {
-    const s = sessionRef.current;
-    if (!s) return;
-    const next = recordMatch(s.data, matchKey, won);
-    if (next) void accounts.update(s, () => next).then(setSession);
-  }, [accounts]);
-
-  if (session === undefined) return <div className="center-note">正在加载…</div>;
-  if (!session) return <Login accounts={accounts} onDone={setSession} />;
-  if (entry) {
-    return (
-      <RoomGame
-        key={`${entry.kind}-${entry.roomId}`} entry={entry} session={session}
-        onLeave={() => enter(null)} onMatchOver={onMatchOver}
-      />
-    );
-  }
-  return (
-    <Lobby
-      bus={getMainBroker()} accounts={accounts} session={session} invite={invite}
-      onSession={setSession} onEnter={enter}
-      onLogout={() => { accounts.logout(); setSession(null); setEntry(null); }}
-    />
-  );
+    let active = true;
+    const expired = () => { setUser(null); setRoomId(null); };
+    addEventListener('session-expired', expired);
+    void api<{ user: User }>('/me').then(({ user: account }) => {
+      if (!active) return;
+      setUser(account);
+      if (!invite) setRoomId(browserStore.get('thp.v3.current.' + account.id) || null);
+    }).catch((e: Error) => { if (active && e.message !== '请先登录' && !e.message.includes('登录已过期')) setError(e.message); });
+    return () => { active = false; removeEventListener('session-expired', expired); };
+  }, [invite]);
+  const enter = (id: string) => { if (user) browserStore.set('thp.v3.current.' + user.id, id); setRoomId(id); history.replaceState(null, '', location.pathname); };
+  const leave = () => { if (user) browserStore.set('thp.v3.current.' + user.id, ''); setRoomId(null); };
+  const logout = async () => {
+    if (!confirm('退出登录会断开当前连接，确定退出吗？')) return;
+    try { await api('/auth/logout', 'POST'); setUser(null); setRoomId(null); }
+    catch (e) { setError((e as Error).message); }
+  };
+  if (error) return <main className="lobby"><p role="alert">{error}</p><button type="button" className="btn" onClick={() => location.reload()}>重新连接</button></main>;
+  if (user === undefined) return <div className="center-note">正在连接服务器…</div>;
+  if (!user) return <Login onDone={setUser} />;
+  if (roomId) return <RemoteGame roomId={roomId} onLeave={leave} />;
+  return <Lobby user={user} invite={invite} onEnter={enter} onUser={setUser} onLogout={() => { void logout(); }} />;
 }
-
-/** 联机：通过加密中转连接 */
-function RoomGame({ entry, session, onLeave, onMatchOver }: {
-  entry: RoomEntry;
-  session: Session;
-  onLeave: () => void;
-  onMatchOver: (matchKey: string, won: boolean) => void;
-}) {
-  const [client, setClient] = useState<GameClient | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const { username } = session.data;
-
+function RemoteGame({ roomId, onLeave }: { roomId: string; onLeave: () => void }) {
+  const [client, setClient] = useState<ServerGameClient | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let disposed = false;
-    let created: GameClient | null = null;
-    (async () => {
-      if (entry.kind === 'host') {
-        const room = session.data.rooms.find((r) => r.roomId === entry.roomId);
-        if (!room) throw new Error('这个房间已经解散了');
-        const [roomKey, hostKey] = await Promise.all([roomKeyOf(room), hostKeyOf(room)]);
-        if (disposed) return;
-        const link = new HostLink({ roomId: room.roomId, roomKey, hostKey, ecdh: room.ecdh, brokerUrl: brokerUrl() });
-        // 先看服务器上有没有存档（换设备时用），再声明由这台设备当房主
-        const remote = await link.loadSave();
-        if (disposed) { link.close(); return; }
-        link.claimHost();
-        created = new HostController(link, {
-          name: username,
-          roomName: room.name,
-          maxWatchers: room.maxWatchers,
-          saveKey: `thp.v2.host.${room.roomId}`,
-          remoteSave: isSavedGame(remote) ? remote : null,
-          saveRemote: (saved) => link.saveRemote(saved),
-          onRoomChange: (s) => { void publishListing(getMainBroker(), listingFor(room, username, s.seats, s.watchers)); },
-        });
-      } else {
-        const [roomKey, ecdh, token] = await Promise.all([
-          importKey(entry.roomKey), ecdhFor(browserStore, session.id, entry.roomId), seatTokenFor(session.data, entry.roomId),
-        ]);
-        if (disposed) return;
-        const link = new GuestLink({ roomId: entry.roomId, roomKey, hostPublic: entry.hostPublic, ecdh, brokerUrl: brokerUrl() });
-        created = new GuestClient(link, { name: username, token, want: entry.want });
-      }
-      if (disposed) created.dispose();
-      else setClient(created);
-    })().catch((e: unknown) => setFailure(e instanceof Error ? e.message : String(e)));
-    return () => { disposed = true; created?.dispose(); };
-    // 账号内容变化（例如记了战绩）不需要重连
-  }, [entry]);
-
-  if (failure) {
-    return (
-      <main className="lobby">
-        <p>进不去房间：{failure}</p>
-        <button type="button" className="btn" onClick={onLeave}>回到大厅</button>
-      </main>
-    );
-  }
-  if (!client) return <div className="center-note">正在连接…</div>;
-  return (
-    <GameScreen
-      client={client} online inviteUrl={inviteLink(pageBase(), entry.roomId, loadBrokerChoice(browserStore))}
-      onLeave={() => { client.leave(); onLeave(); }}
-      onMatchOver={(epoch, matchNumber, won) => onMatchOver(`${entry.roomId}:${epoch}:${matchNumber}`, won)}
-    />
-  );
+    const game = new ServerGameClient(roomId);
+    setClient(game);
+    return () => game.dispose();
+  }, [roomId]);
+  const leave = async () => {
+    try { await api('/rooms/' + roomId + '/leave', 'POST'); onLeave(); }
+    catch (e) {
+      const message = (e as Error).message;
+      if (message.includes('不存在') || message.includes('先加入')) onLeave();
+      else setError(message);
+    }
+  };
+  return <>{error && <p role="alert" className="banner banner-warn">{error}</p>}{client ? <GameScreen client={client} online inviteUrl={location.origin + location.pathname + '#room=' + roomId} onLeave={() => { void leave(); }} /> : <div className="center-note">正在进入房间…</div>}</>;
 }
 
 /** 单机测试：同一设备几个标签页 */
@@ -215,7 +94,7 @@ function GameScreen({ client, online, inviteUrl, onLeave, onMatchOver }: {
   const { view, room, turn, error, connection, pending, nudged, denied, epoch } = snapshot;
   const [panel, setPanel] = useState<'invite' | 'install' | null>(null);
   const [nudgeNote, setNudgeNote] = useState<string | null>(null);
-  const host = client.role === 'host';
+  const host = online ? room?.owner === true : client.role === 'host';
   const seated = room?.you === 'host' || room?.you === 'player';
   useWakeLock(online);
 
@@ -244,8 +123,8 @@ function GameScreen({ client, online, inviteUrl, onLeave, onMatchOver }: {
     return (
       <main className="lobby">
         <h1>已在其他设备打开</h1>
-        <p className="muted">你在另一台设备上以房主身份进入了这个房间，这台设备已停止。牌局进度在那台设备上继续。</p>
-        <button type="button" className="btn btn-raise" onClick={() => location.reload()}>改回在这台设备上当房主</button>
+        <p className="muted">同一账号已在另一台设备进入这个房间，这台设备已停止操作。</p>
+        <button type="button" className="btn btn-raise" onClick={() => location.reload()}>改回在这台设备上玩</button>
       </main>
     );
   }
@@ -262,12 +141,8 @@ function GameScreen({ client, online, inviteUrl, onLeave, onMatchOver }: {
 
   return (
     <main className="game">
-      {online && (
-        <StatusBanner
-          role={client.role} connection={connection} opponent={room?.seats[1] ?? null} hasView={view !== null}
-          onInvite={() => setPanel('invite')}
-        />
-      )}
+      {online && connection.self !== 'online' && <div className="banner banner-warn">网络断开，正在重连…座位保留 60 秒，计时仍会继续。</div>}
+      {online && connection.self === 'online' && connection.peer === 'offline' && <div className="banner banner-warn">对手暂时离线，计时仍在继续；60 秒内可回来。</div>}
       {view ? (
         <Table
           view={view} room={room} turn={turn} pending={pending}
@@ -281,7 +156,7 @@ function GameScreen({ client, online, inviteUrl, onLeave, onMatchOver }: {
       ) : (
         <div className="center-note">
           正在进入房间…
-          <div className="muted small">{online ? '房主在线时会自动进入' : '请在另一个标签页以房主身份打开'}</div>
+          <div className="muted small">{online ? '正在从服务器读取牌局' : '请在另一个标签页以房主身份打开'}</div>
         </div>
       )}
 
@@ -332,7 +207,7 @@ function GameScreen({ client, online, inviteUrl, onLeave, onMatchOver }: {
           type="button" className="link small"
           onClick={() => {
             const msg = host
-              ? '离开后房间暂停，别人进不来。以后在大厅"我的房间"里可以回来。确定离开吗？'
+              ? '离开会让出座位，未完成的整局不计战绩。房间仍保留在我的房间。确定离开吗？'
               : room?.you === 'player'
                 ? '离开会让出座位，这一局就此结束。确定离开吗？'
                 : '确定离开这个房间吗？';

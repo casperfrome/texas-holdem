@@ -1,0 +1,15 @@
+[Unit]
+Description=Consistent SQLite backup for Texas Holdem
+After=texas-holdem.service
+
+[Service]
+Type=oneshot
+User=texas-holdem
+Group=texas-holdem
+EnvironmentFile=/etc/texas-holdem.env
+ExecStart=/usr/local/bin/node /opt/texas-holdem/current/dist-server/backup.js
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/texas-holdem
+UMask=0077
