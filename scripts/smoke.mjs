@@ -16,7 +16,7 @@ async function until(test, label, timeout = 8000) {
 }
 async function request(path, cookie = '', method = 'GET', body, expected = 200) {
   const response = await fetch(`${base}/api${path}`, {
-    method, headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    method, headers: { Cookie: cookie, Origin: origin, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json();
@@ -122,7 +122,7 @@ try {
   console.log('SMOKE PASSED');
 } finally {
   for (const peer of peers) peer.ws?.close();
-  if (roomId && accounts[0]) await request(`/rooms/${roomId}`, accounts[0].cookie, 'DELETE').catch(() => {});
+  if (roomId && accounts[0]) await request(`/rooms/${roomId}`, accounts[0].cookie, 'DELETE');
   if (process.env.SMOKE_CLEAN_DB && accounts.length) {
     await pause(100);
     const { default: Database } = await import('better-sqlite3');

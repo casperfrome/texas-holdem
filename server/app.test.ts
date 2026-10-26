@@ -1,15 +1,35 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import WebSocket from 'ws';
 import { buildApp } from './app';
 import type { ServerEvent } from '../src/shared/server-protocol';
+import { api } from '../src/net/server';
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
-afterEach(async () => { for (const instance of apps.splice(0)) await instance.app.close(); });
+afterEach(async () => { vi.unstubAllGlobals(); for (const instance of apps.splice(0)) await instance.app.close(); });
 async function setup() {
   const instance = await buildApp({ database: ':memory:', origin: 'http://localhost:5173', rateLimit: false });
   apps.push(instance); return instance;
 }
+it('supports the browser API client for body-less leave, delete and logout requests over real HTTP', async () => {
+  const { app } = await setup();
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  const actualFetch = globalThis.fetch;
+  const registration = await actualFetch(`${base}/api/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'browser', password: 'x' }),
+  });
+  const cookie = registration.headers.get('set-cookie')!.split(';')[0]!;
+  vi.stubGlobal('fetch', (path: string, init: RequestInit = {}) => actualFetch(`${base}${path}`, {
+    ...init, headers: { ...init.headers, Cookie: cookie, Origin: 'http://localhost:5173' },
+  }));
+  const created = await api<{ room: { roomId: string } }>('/rooms', 'POST', { name: 'browser room', password: '', maxWatchers: 2 });
+  const path = `/rooms/${created.room.roomId}`;
+  await expect(api(`${path}/leave`, 'POST')).resolves.toEqual({ ok: true });
+  await expect(api(path, 'DELETE')).resolves.toEqual({ ok: true });
+  await expect(api('/auth/logout', 'POST')).resolves.toEqual({ ok: true });
+  expect((await actualFetch(`${base}/api/me`, { headers: { Cookie: cookie } })).status).toBe(401);
+});
 it('authenticates with hashed passwords, normalized unique usernames and protected cookies', async () => {
   const { app, store } = await setup();
   expect((await app.inject('/api/me')).statusCode).toBe(401);
