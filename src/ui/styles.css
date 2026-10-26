@@ -280,3 +280,61 @@ button, input { font: inherit; color: inherit; }
 /* 主屏幕全屏模式下，内容不要被刘海和状态栏挡住 */
 .game { padding-top: calc(8px + env(safe-area-inset-top)); }
 .lobby { padding-top: calc(48px + env(safe-area-inset-top)); }
+
+/* ---------- 登录、表单 ---------- */
+.tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.tabs button {
+  min-height: 44px; border: none; background: var(--surface); cursor: pointer; font-weight: 600; color: var(--muted);
+}
+.tabs .tab-on { background: var(--accent); color: var(--accent-text); }
+.form { display: flex; flex-direction: column; gap: 12px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; }
+.form label .muted { font-weight: 400; }
+.form input {
+  min-height: 48px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); font-weight: 400;
+}
+.sheet.form input { background: var(--bg); }
+.choices { border: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.choices legend { font-size: 14px; font-weight: 600; margin-bottom: 4px; padding: 0; }
+.choices button {
+  min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); cursor: pointer;
+}
+.choices .choice-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); font-weight: 700; }
+
+/* ---------- 大厅：房间列表 ---------- */
+.lobby-wide { max-width: 520px; }
+.lobby-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.me { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.lobby section { display: flex; flex-direction: column; gap: 8px; }
+.room-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.room-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  text-align: left;
+}
+.room-button { cursor: pointer; }
+.room-button:active { transform: translateY(1px); }
+.room-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.room-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-actions { display: flex; align-items: center; gap: 12px; }
+.room-go { font-size: 22px; color: var(--muted); }
+.btn-small { min-height: 36px; padding: 0 14px; }
+.danger { color: var(--danger); }
+
+/* ---------- 倒计时、催一催、观众 ---------- */
+.turn-clock { display: flex; align-items: center; gap: 6px; width: 120px; }
+.turn-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.turn-fill { height: 100%; background: var(--gold); transition: width 0.25s linear; }
+.turn-sec { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--gold); min-width: 24px; text-align: right; }
+.turn-urgent .turn-fill { background: #ff6b5e; }
+.turn-urgent .turn-sec { color: #ff8a80; font-weight: 700; }
+.nudge-btn { margin-top: 10px; min-height: 40px; }
+.nudge-btn:disabled { opacity: 0.5; cursor: default; }
+.sit-btn { margin-top: 12px; }
+.toast-nudge { background: var(--accent); color: var(--accent-text); bottom: auto; top: calc(16px + env(safe-area-inset-top)); }
+.watchers { text-align: center; padding-top: 10px; }
+.broker-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.broker-picker select {
+  min-height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, bestHand, createMatch, legalActions, startHand, viewFor } from '../engine';
 import { deckFor } from '../engine/test-utils';
-import { describeEntry, describeHand, potSizedTo } from './format';
+import { describeEntry, describeHand, describeResult, namer, potSizedTo } from './format';
 
 const name = (cards: string) => describeHand(bestHand(cards.split(' ')));
 
@@ -51,7 +51,21 @@ describe('记录文字', () => {
   it('从各自视角描述', () => {
     const s = applyAction(startHand(createMatch(), deckFor(0, 'As Ad', 'Kc Kd', '2c 7d 9h Js 3s')), 0, { type: 'raise', to: 30 });
     const log = s.hand!.log;
-    expect(log.map((e) => describeEntry(e, 0))).toEqual(['你 放小盲 5', '对手 放大盲 10', '你 加注到 30']);
-    expect(describeEntry(log[2]!, 1)).toBe('对手 加注到 30');
+    expect(log.map((e) => describeEntry(e, namer(0)))).toEqual(['你 放小盲 5', '对手 放大盲 10', '你 加注到 30']);
+    expect(describeEntry(log[2]!, namer(1))).toBe('对手 加注到 30');
+    expect(describeEntry(log[2]!, namer(1, ['小王', '老李']))).toBe('小王 加注到 30');
+  });
+
+  it('观众看两边都用名字', () => {
+    const s = applyAction(startHand(createMatch(), deckFor(0, 'As Ad', 'Kc Kd', '2c 7d 9h Js 3s')), 0, { type: 'fold' });
+    const who = namer(1, ['小王', '老李'], true);
+    expect(describeEntry(s.hand!.log.find((e) => e.kind === 'action')!, who)).toBe('小王 弃牌');
+    expect(describeResult(s.hand!.result!, who)).toEqual({ title: '老李赢了 10', detail: '小王弃牌了' });
+    expect(describeResult(s.hand!.result!, namer(0, ['小王', '老李']))).toEqual({ title: '老李赢了 10', detail: '你弃牌了' });
+  });
+
+  it('超时自动的操作有标注', () => {
+    expect(describeEntry({ kind: 'action', seat: 0, street: 'flop', action: 'check', amount: 0, to: 0, allIn: false, timeout: true }, namer(0)))
+      .toBe('你 过牌（超时自动）');
   });
 });

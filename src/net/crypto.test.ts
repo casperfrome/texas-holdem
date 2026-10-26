@@ -1,101 +1,70 @@
 import { describe, expect, it } from 'vitest';
-import { deriveKeys, seal, unseal } from './crypto';
-import { createRoom, guestLink, hostLink, parseRoomHash, parseRoomLink } from './room';
+import { clientIdOf, generateEcdh, pairKey, passwordKey, randomId, seal, secretKey, unseal } from './crypto';
+import { parseInviteHash, inviteLink } from './room';
 
-describe('房间链接', () => {
-  it('房主链接和朋友链接都能解析回来', () => {
-    const c = createRoom();
-    const base = 'https://example.com/texas-holdem/';
-    const host = parseRoomHash(new URL(hostLink(base, c)).hash);
-    const guest = parseRoomHash(new URL(guestLink(base, c)).hash);
-    expect(host).toEqual(c);
-    expect(guest).toEqual({ room: c.room, hostSecret: null, broker: 'emqx' });
-    expect(guestLink(base, c)).not.toContain(c.hostSecret);
-  });
-
-  it('非默认中转服务器写进链接', () => {
-    const c = createRoom('hivemq');
-    expect(guestLink('https://x/', c)).toMatch(/&b=hivemq$/);
-    expect(parseRoomHash(new URL(guestLink('https://x/', c)).hash)?.broker).toBe('hivemq');
-  });
-
-  it('不认识的链接返回 null', () => {
-    expect(parseRoomHash('')).toBeNull();
-    expect(parseRoomHash('#host')).toBeNull();
-    expect(parseRoomHash('#local=host')).toBeNull();
-    expect(parseRoomHash('#join=short')).toBeNull();
-    expect(parseRoomHash('#host=abcdefghijklmnopqrstuv')).toBeNull(); // 缺房主密钥
-    expect(parseRoomHash('#join=abcdefghijklmnop<script>')).toBeNull();
-  });
-
-  it('粘贴整条链接、只粘贴 # 后面、前后有空格都能识别', () => {
-    const c = createRoom();
-    const url = hostLink('https://casperfrome.github.io/texas-holdem/', c);
-    expect(parseRoomLink(url)).toEqual(c);
-    expect(parseRoomLink(`  ${url}\n`)).toEqual(c);
-    expect(parseRoomLink(url.slice(url.indexOf('#')))).toEqual(c);
-    expect(parseRoomLink(`join=${c.room}`)).toEqual({ ...c, hostSecret: null });
-    expect(parseRoomLink('你好')).toBeNull();
-    expect(parseRoomLink('https://casperfrome.github.io/texas-holdem/')).toBeNull();
-  });
-
-  it('每次创建的房间都不一样', () => {
-    const a = createRoom();
-    const b = createRoom();
-    expect(a.room).not.toBe(b.room);
-    expect(a.hostSecret).not.toBe(b.hostSecret);
+describe('邀请链接', () => {
+  it('能解析回房间号，不认识的返回 null', () => {
+    const id = randomId();
+    expect(parseInviteHash(new URL(inviteLink('https://x/texas-holdem/', id, 'emqx')).hash)).toEqual({ roomId: id, broker: 'emqx' });
+    expect(inviteLink('https://x/', id, 'emqx')).not.toContain('&b=');
+    expect(parseInviteHash(new URL(inviteLink('https://x/', id, 'hivemq')).hash)).toEqual({ roomId: id, broker: 'hivemq' });
+    expect(parseInviteHash(`#room=${id}&b=nope`)!.broker).toBe('emqx');
+    expect(parseInviteHash('')).toBeNull();
+    expect(parseInviteHash('#local=host')).toBeNull();
+    expect(parseInviteHash('#room=short')).toBeNull();
+    expect(parseInviteHash('#room=abcdefghijklmnop<script>')).toBeNull();
   });
 });
 
 describe('加密', () => {
-  it('同一房间派生出相同的频道和密钥，朋友没有房主密钥', async () => {
-    const c = createRoom();
-    const host = await deriveKeys(c);
-    const guest = await deriveKeys({ ...c, hostSecret: null });
-    expect(host.topicId).toBe(guest.topicId);
-    expect(host.topicId).toMatch(/^[0-9a-f]{32}$/);
-    expect(host.hostKey).not.toBeNull();
-    expect(guest.hostKey).toBeNull();
-    // 房主加密的消息朋友能解开
-    const text = await seal(host.roomKey, { hello: '你好', n: [1, 2] });
-    expect(await unseal(guest.roomKey, text)).toEqual({ hello: '你好', n: [1, 2] });
+  it('同一密码和盐派生出同一个密钥，密码不对解不开', async () => {
+    const salt = randomId();
+    const a = await passwordKey('1', salt, 1000);
+    const b = await passwordKey('1', salt, 1000);
+    const wrong = await passwordKey('2', salt, 1000);
+    const text = await seal(a, { hello: '你好', n: [1, 2] });
+    expect(await unseal(b, text)).toEqual({ hello: '你好', n: [1, 2] });
+    await expect(unseal(wrong, text)).rejects.toThrow();
   });
 
-  it('频道地址不包含口令', async () => {
-    const c = createRoom();
-    const { topicId } = await deriveKeys(c);
-    expect(topicId).not.toContain(c.room);
+  it('同一密码换了盐就是不同的密钥', async () => {
+    const a = await passwordKey('1', randomId(), 1000);
+    const b = await passwordKey('1', randomId(), 1000);
+    await expect(unseal(b, await seal(a, 1))).rejects.toThrow();
   });
 
-  it('不同房间的钥匙解不开，被篡改的消息解不开', async () => {
-    const a = await deriveKeys(createRoom());
-    const b = await deriveKeys(createRoom());
-    expect(a.topicId).not.toBe(b.topicId);
-    const text = await seal(a.roomKey, { x: 1 });
-    await expect(unseal(b.roomKey, text)).rejects.toThrow();
+  it('房主和参与者各自算出同一个一对一密钥，第三个人算不出', async () => {
+    const host = await generateEcdh();
+    const guest = await generateEcdh();
+    const other = await generateEcdh();
+    const k1 = await pairKey(host.privateJwk, guest.publicJwk);
+    const k2 = await pairKey(guest.privateJwk, host.publicJwk);
+    const k3 = await pairKey(other.privateJwk, host.publicJwk);
+    const text = await seal(k1, { hole: ['As', 'Kd'] });
+    expect(await unseal(k2, text)).toEqual({ hole: ['As', 'Kd'] });
+    await expect(unseal(k3, text)).rejects.toThrow();
+  });
+
+  it('参与者编号由公钥决定', async () => {
+    const a = await generateEcdh();
+    const b = await generateEcdh();
+    expect(await clientIdOf(a.publicJwk)).toBe(await clientIdOf({ ...a.publicJwk }));
+    expect(await clientIdOf(a.publicJwk)).not.toBe(await clientIdOf(b.publicJwk));
+    expect(await clientIdOf(a.publicJwk)).toMatch(/^[0-9a-f]{24}$/);
+  });
+
+  it('被篡改的消息解不开；同样内容每次加密结果不同', async () => {
+    const key = await secretKey(randomId(), 'test');
+    const text = await seal(key, { x: 1 });
     const bytes = Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
     bytes[bytes.length - 1]! ^= 1;
-    const tampered = btoa(String.fromCharCode(...bytes));
-    await expect(unseal(a.roomKey, tampered)).rejects.toThrow();
-  });
-
-  it('房主存档只有房主密钥能解开', async () => {
-    const c = createRoom();
-    const host = await deriveKeys(c);
-    const guest = await deriveKeys({ ...c, hostSecret: null });
-    const saved = await seal(host.hostKey!, { deck: ['As', 'Kd'] });
-    await expect(unseal(guest.roomKey, saved)).rejects.toThrow();
-    expect(await unseal(host.hostKey!, saved)).toEqual({ deck: ['As', 'Kd'] });
-  });
-
-  it('同样内容每次加密结果不同（随机 IV）', async () => {
-    const { roomKey } = await deriveKeys(createRoom());
-    expect(await seal(roomKey, 1)).not.toBe(await seal(roomKey, 1));
+    await expect(unseal(key, btoa(String.fromCharCode(...bytes)))).rejects.toThrow();
+    expect(await seal(key, 1)).not.toBe(await seal(key, 1));
   });
 
   it('大消息也能加解密', async () => {
-    const { roomKey } = await deriveKeys(createRoom());
+    const key = await secretKey(randomId(), 'test');
     const big = { s: 'x'.repeat(200_000) };
-    expect(await unseal(roomKey, await seal(roomKey, big))).toEqual(big);
+    expect(await unseal(key, await seal(key, big))).toEqual(big);
   });
 });

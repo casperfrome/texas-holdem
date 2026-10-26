@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { browserStore } from '../game/client';
+import { BROKERS, type BrokerId, isBrokerId, loadBrokerChoice, saveBrokerChoice } from '../net/broker';
 import type { ConnectionInfo, Role } from '../net/protocol';
 import { detectPlatform, useInstallPrompt } from './pwa';
 
@@ -9,12 +11,11 @@ const INSTALL_STEPS: Record<ReturnType<typeof detectPlatform>, string[]> = {
   desktop: ['点地址栏右侧的"安装"图标（Chrome / Edge）', '或者打开浏览器菜单，选"安装德州扑克"'],
 };
 
-/** 安装到主屏幕 / 桌面的说明；同时给出进入房间要用的链接 */
-export function InstallPanel({ link, isHostLink, onClose }: { link: string; isHostLink: boolean; onClose: () => void }) {
+/** 安装到主屏幕 / 桌面的说明 */
+export function InstallPanel({ onClose }: { onClose: () => void }) {
   const install = useInstallPrompt();
   const platform = detectPlatform();
   const steps = INSTALL_STEPS[platform];
-  const linkName = isHostLink ? '房主链接' : '邀请链接';
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-label="安装到主屏幕" onClick={(e) => e.stopPropagation()}>
@@ -25,34 +26,14 @@ export function InstallPanel({ link, isHostLink, onClose }: { link: string; isHo
         ) : (
           <ol className="steps">{steps.map((s) => <li key={s}>{s}</li>)}</ol>
         )}
-        {platform === 'ios' ? (
-          <p>
-            <strong>重要：</strong>从主屏幕打开的游戏和 Safari 是分开存储的，第一次从图标打开时，需要粘贴一次{linkName}。先复制好：
-          </p>
-        ) : (
-          <p className="muted">如果从图标打开后没有直接进入房间，粘贴这个{linkName}即可：</p>
+        {platform === 'ios' && (
+          <p><strong>注意：</strong>从主屏幕打开的游戏和 Safari 是分开存储的，第一次从图标打开时需要再登录一次。</p>
         )}
-        <CopyLink url={link} />
-        {isHostLink && <p className="sheet-warn small">房主链接只留给自己，不要发给任何人。</p>}
         <div className="sheet-buttons">
           <button type="button" className="btn" onClick={onClose}>关闭</button>
         </div>
       </div>
     </div>
-  );
-}
-
-function CopyLink({ url }: { url: string }) {
-  const [copied, setCopied] = useState<'ok' | 'fail' | null>(null);
-  return (
-    <>
-      <div className="link-box">{url}</div>
-      <button
-        type="button" className="btn"
-        onClick={() => navigator.clipboard.writeText(url).then(() => setCopied('ok'), () => setCopied('fail'))}
-      >{copied === 'ok' ? '已复制' : '复制链接'}</button>
-      {copied === 'fail' && <p className="muted small">自动复制失败，请长按上面的链接手动复制。</p>}
-    </>
   );
 }
 
@@ -64,10 +45,12 @@ export function StatusDot({ connection }: { connection: ConnectionInfo }) {
   );
 }
 
-/** 顶部提示：自己断线、对方不在线、朋友还没加入 */
-export function StatusBanner({ role, connection, hasView, onInvite }: {
+/** 顶部提示：自己断线、对方不在线、还没有对手 */
+export function StatusBanner({ role, connection, opponent, hasView, onInvite }: {
   role: Role;
   connection: ConnectionInfo;
+  /** 房主看：坐在对面的人 */
+  opponent: string | null;
   hasView: boolean;
   onInvite: () => void;
 }) {
@@ -75,19 +58,37 @@ export function StatusBanner({ role, connection, hasView, onInvite }: {
     return <div className="banner banner-warn">{connection.self === 'connecting' ? '正在连接…' : '网络断开，正在重连…'}</div>;
   }
   if (role === 'host') {
-    if (connection.peer === 'unknown') {
+    if (!opponent) {
       return (
         <div className="banner">
-          朋友还没加入
+          还没有对手
           <button type="button" className="link" onClick={onInvite}>发邀请链接</button>
         </div>
       );
     }
-    if (connection.peer === 'offline') return <div className="banner banner-warn">朋友暂时不在线，牌局暂停</div>;
+    if (connection.peer === 'offline') return <div className="banner banner-warn">{opponent}暂时不在线，牌局暂停</div>;
     return null;
   }
   if (connection.peer === 'offline' && hasView) return <div className="banner banner-warn">房主不在线，牌局暂停</div>;
+  if (connection.peer === 'offline') return <div className="banner banner-warn">房主现在不在线，上线后自动进入</div>;
   return null;
+}
+
+/** 被催时：提示音 + 震动 */
+export function alertNudge() {
+  navigator.vibrate?.([120, 80, 120]);
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => void ctx.close();
+  } catch { /* 浏览器不让播放声音时只震动 */ }
 }
 
 /** 显示一个链接，可以复制或调用系统分享 */
@@ -146,4 +147,25 @@ export function useWakeLock(enabled: boolean) {
       void lock?.release().catch(() => {});
     };
   }, [enabled]);
+}
+
+/** 换中转服务器：大家要用同一个，换了之后重新加载页面 */
+export function BrokerPicker() {
+  const current = loadBrokerChoice(browserStore);
+  return (
+    <label className="broker-picker muted small">
+      中转服务器
+      <select
+        value={current}
+        onChange={(e) => {
+          if (!isBrokerId(e.target.value)) return;
+          saveBrokerChoice(browserStore, e.target.value);
+          location.reload();
+        }}
+      >
+        {(Object.keys(BROKERS) as BrokerId[]).map((id) => <option key={id} value={id}>{BROKERS[id].name}</option>)}
+      </select>
+      <span>（默认的连不上时换一个；和朋友要用同一个，邀请链接会自动带上）</span>
+    </label>
+  );
 }

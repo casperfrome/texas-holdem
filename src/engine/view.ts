@@ -1,5 +1,5 @@
 // 把房主手里的完整状态裁剪成某一方能看到的数据：
-// 去掉牌堆，对方的底牌只在摊牌时才给出。
+// 去掉牌堆，对方的底牌只在摊牌时才给出；观众两边的底牌都只在摊牌时给出。
 import type { Card } from './cards';
 import {
   type Config, type HandResult, legalActions, type LegalActions, type LogEntry,
@@ -42,7 +42,8 @@ export interface PlayerView {
   legal: LegalActions | null;
 }
 
-export function viewFor(state: MatchState, you: Seat): PlayerView {
+/** spectator 为 true 时是观众视角：以 you 号位为下方座位，但双方底牌都只在摊牌时给出，也不能操作 */
+export function viewFor(state: MatchState, you: Seat, spectator = false): PlayerView {
   const hand = state.hand;
   let handView: HandView | null = null;
   if (hand) {
@@ -55,7 +56,7 @@ export function viewFor(state: MatchState, you: Seat): PlayerView {
         committed: p.committed,
         folded: p.folded,
         allIn: p.stack === 0 && !p.folded,
-        hole: seat === you || revealed ? p.hole.slice() : null,
+        hole: (seat === you && !spectator) || revealed ? p.hole.slice() : null,
       };
     };
     handView = {
@@ -80,7 +81,7 @@ export function viewFor(state: MatchState, you: Seat): PlayerView {
     matchWins: [...state.matchWins],
     matchWinner: state.matchWinner,
     hand: handView,
-    legal: legalActions(state, you),
+    legal: spectator ? null : legalActions(state, you),
   };
 }
 

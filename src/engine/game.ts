@@ -41,7 +41,11 @@ export interface PlayerState {
 
 export type LogEntry =
   | { kind: 'blind'; seat: Seat; blind: 'sb' | 'bb'; amount: number; allIn: boolean }
-  | { kind: 'action'; seat: Seat; street: Street; action: 'fold' | 'check' | 'call' | 'bet' | 'raise'; amount: number; to: number; allIn: boolean }
+  | {
+    kind: 'action'; seat: Seat; street: Street; action: 'fold' | 'check' | 'call' | 'bet' | 'raise'; amount: number; to: number; allIn: boolean;
+    /** 超时由系统代为操作 */
+    timeout?: boolean;
+  }
   | { kind: 'street'; street: Street; cards: Card[] }
   | { kind: 'return'; seat: Seat; amount: number };
 
